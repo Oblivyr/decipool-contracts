@@ -1,0 +1,12 @@
+# genesis: 0x68d56f15f85d3136970ec16946040bc1752654e906147f7e43e9d539d7c3de2f
+# Chopsticks fork of Polkadot Asset Hub for the pool tests on Polkadot (FORK_NET=polkadot).
+# Pinned so every run forks identical state.
+endpoint:
+  - wss://dot-rpc.stakeworld.io/assethub
+  - wss://rpc-asset-hub-polkadot.luckyfriday.io
+  - wss://asset-hub-polkadot-rpc.n.dwellir.com
+  - wss://polkadot-asset-hub-rpc.polkadot.io
+block: 22667567
+mock-signature-host: true
+runtime-log-level: 3
+port: 8010

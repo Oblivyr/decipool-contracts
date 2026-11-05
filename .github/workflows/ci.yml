@@ -1,0 +1,40 @@
+# compile: upstream check, solc build, typecheck (every push and PR).
+# fork: factory tests on a Kusama Asset Hub fork (pushes, manual, weekly).
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: "1.3.14" }
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+
+  fork:
+    if: github.event_name != 'pull_request'
+    needs: compile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: "1.3.14" }
+      - uses: actions/setup-node@v7
+        with: { node-version: 22 }
+      - run: bun install --frozen-lockfile
+      - run: bun run compile
+      - name: factory on a Kusama Asset Hub fork
+        timeout-minutes: 15
+        run: fork/ci-run.sh bun factory-test.ts

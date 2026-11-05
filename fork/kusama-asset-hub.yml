@@ -1,0 +1,13 @@
+# Modified from Birdbrain's decision-deposit (Apache-2.0) for Decipool, November 2026: endpoints that serve the pinned block, genesis check.
+# genesis: 0x48239ef607d7928874027a43a67689209727dfb3d3dc5e5b03a39bdc2eda771a
+# Chopsticks fork of Kusama Asset Hub for the decision-deposit pool tests.
+# Pinned so every run forks identical state. #676 is Ongoing here with no decision deposit.
+endpoint:
+  - wss://rpc-asset-hub-kusama.luckyfriday.io
+  - wss://ksm-rpc.stakeworld.io/assethub
+  - wss://asset-hub-kusama-rpc.n.dwellir.com
+  - wss://kusama-asset-hub-rpc.polkadot.io
+block: 23191985
+mock-signature-host: true
+runtime-log-level: 3
+port: 8010

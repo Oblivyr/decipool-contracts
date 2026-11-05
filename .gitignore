@@ -1,0 +1,6 @@
+node_modules/
+build/
+*.key
+keys/
+results/
+fork.log

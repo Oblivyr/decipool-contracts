@@ -1,0 +1,11 @@
+Decipool contracts
+Copyright 2026 Oblivyr
+
+Includes code from Birdbrain's decision-deposit (Apache-2.0),
+https://github.com/Birdbrain-wtf/decision-deposit, commit a2a927c34e.
+
+contracts/DecisionDepositPool.sol and contracts/Refuser.sol are unchanged (enforced by check-upstream.ts).
+compile.ts, deploy.ts, verify.ts, test.ts, lib.ts, networks.ts and fork/kusama-asset-hub.yml are modified;
+each file says so on its first line.
+
+Decipool is not affiliated with or endorsed by Birdbrain.
