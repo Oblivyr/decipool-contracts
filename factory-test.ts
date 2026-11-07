@@ -75,6 +75,8 @@ check("the pool carries the factory's chain parameters",
   (await read(api, pool, "refundCallIndex")) === REFUND && (await read(api, pool, "weiPerPlanck")) === WEI_PER_PLANCK);
 check("and the creator's choices", (await read(api, pool, "referendum")) === 676 && (await read(api, pool, "deposit")) === DEPOSIT * WEI_PER_PLANCK &&
   (await read(api, pool, "minContribution")) === MIN * WEI_PER_PLANCK && (await read(api, pool, "fundingDeadline")) === deadline);
+check("stray money (a plain transfer) can only ever be swept to the pool's creator", String(await read(api, pool, "sweepTo")).toLowerCase() === eve.address.toLowerCase());
+check("nothing to sweep while the pool collects", (await read(api, pool, "excess")) === 0n);
 check("it builds the same XCM message as a directly deployed pool", (await read(api, pool, "placeMessage")) === "0x0504060100185c01a4020000");
 
 const second = await fcall(dave, factory, "create", [676, DEPOSIT, 10n * KSM, deadline]);
@@ -92,7 +94,7 @@ check("create refuses any value sent with it (not payable)", !(await send(factor
 check("a plain value transfer to the factory is refused (no receive/fallback)", !(await send(factory, "0x", KSM_WEI)).ok);
 check("an unknown function call is refused", !(await send(factory, "0xdeadbeef", 0n)).ok);
 check("the factory's EVM balance is 0", (await evmBalance(api, factory)) === 0n);
-const direct = await deploy(api, eve, [676, DEPOSIT, MIN, deadline, REFERENDA, PLACE, REFUND, WEI_PER_PLANCK]);
+const direct = await deploy(api, eve, [676, DEPOSIT, MIN, deadline, REFERENDA, PLACE, REFUND, WEI_PER_PLANCK, eve.address]);
 check("a pool deployed directly, same code and arguments, is NOT vouched for", (await fread(factory, "isPool", [direct])) === false);
 check("the factory does not vouch for itself", (await fread(factory, "isPool", [factory])) === false);
 const dep2 = await ethSend(api, eve, null, encodeDeployData({ abi: fabi, bytecode: art.bytecode, args: [REFERENDA, PLACE, REFUND, WEI_PER_PLANCK] }));

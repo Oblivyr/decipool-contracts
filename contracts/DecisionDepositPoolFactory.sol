@@ -20,6 +20,10 @@ import "./DecisionDepositPool.sol";
 /// A pool with the wrong deposit for its track can never place it (the pool checks the exact amount), so its contributors
 /// withdraw or are paid back after the deadline; a page should still compare the
 /// deposit with the track's before anyone pays in.
+///
+/// Pools are Birdbrain's version 2. Its `sweep` sends money that reached a pool without
+/// `contribute` (a plain transfer), and only the excess over what contributors are owed,
+/// to `sweepTo`: here the address that created the pool.
 contract DecisionDepositPoolFactory {
     uint8 public immutable referendaPallet;
     uint8 public immutable placeCallIndex;
@@ -70,7 +74,8 @@ contract DecisionDepositPoolFactory {
                 referendaPallet,
                 placeCallIndex,
                 refundCallIndex,
-                weiPerPlanck
+                weiPerPlanck,
+                msg.sender
             )
         );
         pools.push(pool);

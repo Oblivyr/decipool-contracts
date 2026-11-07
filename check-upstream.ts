@@ -3,9 +3,9 @@
 import { createHash } from "crypto";
 import { readFileSync } from "fs";
 
-const UPSTREAM = "a2a927c34e"; // Birdbrain-wtf/decision-deposit
+const UPSTREAM = "cb254fe8b0"; // Birdbrain-wtf/decision-deposit (version 2: contracts/v2/DecisionDepositPool.sol)
 const FILES: Record<string, string> = {
-  "contracts/DecisionDepositPool.sol": "ea4f834007abd3ba3d9638cc0dc253d6ea961f3bd6f60eca7002195b6f9307a0",
+  "contracts/DecisionDepositPool.sol": "113b553c6acb485d5378dedf7581e538a3e620a90d33c82eae172e76c328bc62",
   "contracts/Refuser.sol": "88387c823fe31e2aff11688cb3201600c8c0c5f95d97bf9273a8ef4753a10bd0",
 };
 let bad = 0;

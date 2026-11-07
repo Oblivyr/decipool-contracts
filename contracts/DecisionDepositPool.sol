@@ -12,23 +12,27 @@ interface IXcm {
     function weighMessage(bytes calldata message) external view returns (Weight memory weight);
 }
 
-/// One pool for one referendum's decision deposit.
+/// Version 2. One pool for one referendum's decision deposit, on any track.
 ///
-/// Groups pay KSM in. When the pool holds the full deposit, anyone can place it
-/// on the referendum. The contract's own account is the depositor, so the
-/// refund comes back here, and anyone can then reclaim it and pay every
-/// contributor back to the address they paid from.
+/// Groups pay KSM in. The payment that fills the pool places the deposit on the
+/// referendum from the contract's own account, in the same transaction; if that
+/// attempt fails, anyone can place it later. When the referendum ends, anyone
+/// reclaims it and every contributor is paid back to the address they paid from.
 ///
-/// The payment that fills the pool also tries to place the deposit, in the same
-/// transaction. If that attempt fails (someone else placed first, the
-/// referendum is not ongoing, the call is refused) the payment still counts,
-/// nothing leaves, and `place` stays open to anyone as the fallback.
+/// Changes from version 1 (the #676 pools):
+/// - `reclaim` weighs the refund message inside a try, so a weighing failure can
+///   no longer block a refund that already came back by another route.
+/// - An address that withdraws and pays in again is listed once.
+/// - `sweep` returns KSM that reached the contract without going through
+///   `contribute` (a plain transfer runs no code) to `sweepTo`, fixed at
+///   deployment, and only ever the excess over what contributors are owed.
+/// - Pools are usually opened through `DecisionDepositPoolFactory`, which fixes
+///   the chain settings so the person opening a pool cannot get them wrong.
 ///
 /// No owner, no admin, no upgrade. Every parameter is fixed at deployment.
 ///
-/// Amounts are in the EVM's 18-decimal units. KSM has 12 on the chain, so one
-/// planck is 10^6 wei and every amount must be a whole number of planck. The
-/// ratio is a constructor argument because test networks differ (PAS has 10).
+/// Amounts are in the EVM's 18-decimal units. One planck is `weiPerPlanck` wei
+/// and every amount must be a whole number of planck.
 ///
 /// If governance KILLS the referendum the deposit is slashed and nothing comes
 /// back. Every other ending (approved, rejected, cancelled, timed out) refunds.
@@ -49,12 +53,14 @@ contract DecisionDepositPool {
     uint8 public immutable placeCallIndex;
     uint8 public immutable refundCallIndex;
     uint256 public immutable weiPerPlanck; // the chain's NativeToEthRatio: 1e6 on Kusama Asset Hub, 1e8 on Paseo's
+    address public immutable sweepTo; // receives only KSM nobody is owed
 
     State public state;
     uint256 public total; // wei pledged and not yet paid back
     uint256 public balanceAfterPlacing; // contract balance right after placing
     address[] public contributors;
     mapping(address => uint256) public contributed; // wei still owed back to each address
+    mapping(address => bool) public listed;
 
     bool private locked;
 
@@ -66,6 +72,7 @@ contract DecisionDepositPool {
     event Abandoned(address by);
     event Repaid(address indexed to, uint256 amount);
     event RepayFailed(address indexed to, uint256 amount);
+    event Swept(address indexed to, uint256 amount);
 
     error WrongState();
     error BadAmount();
@@ -76,6 +83,7 @@ contract DecisionDepositPool {
     error NothingCameBack();
     error Reentrancy();
     error NotSelf();
+    error NothingToSweep();
 
     modifier nonReentrant() {
         if (locked) revert Reentrancy();
@@ -92,11 +100,13 @@ contract DecisionDepositPool {
         uint8 referendaPallet_,
         uint8 placeCallIndex_,
         uint8 refundCallIndex_,
-        uint256 weiPerPlanck_
+        uint256 weiPerPlanck_,
+        address sweepTo_
     ) {
         require(weiPerPlanck_ > 0);
         require(depositPlanck > 0 && minContributionPlanck > 0 && minContributionPlanck <= depositPlanck);
         require(fundingDeadline_ > block.timestamp);
+        require(sweepTo_ != address(0) && sweepTo_ != address(this));
         referendum = referendum_;
         deposit = depositPlanck * weiPerPlanck_;
         minContribution = minContributionPlanck * weiPerPlanck_;
@@ -105,6 +115,7 @@ contract DecisionDepositPool {
         placeCallIndex = placeCallIndex_;
         refundCallIndex = refundCallIndex_;
         weiPerPlanck = weiPerPlanck_;
+        sweepTo = sweepTo_;
     }
 
     // ---------------------------------------------------------------- funding
@@ -119,7 +130,10 @@ contract DecisionDepositPool {
         if (total + amount > deposit) revert BadAmount();
         // The last payment may be smaller than the minimum, so a pool can always fill.
         if (amount < minContribution && total + amount != deposit) revert BadAmount();
-        if (contributed[msg.sender] == 0) contributors.push(msg.sender);
+        if (!listed[msg.sender]) {
+            listed[msg.sender] = true;
+            contributors.push(msg.sender);
+        }
         contributed[msg.sender] += amount;
         total += amount;
         emit Contributed(msg.sender, amount, total);
@@ -163,7 +177,8 @@ contract DecisionDepositPool {
 
     function _place(address by) internal {
         uint256 before = address(this).balance;
-        _execute(placeMessage());
+        bytes memory message = placeMessage();
+        IXcm(XCM).execute(message, IXcm(XCM).weighMessage(message));
         // XCM may not surface a failed call, so trust the balance, not the reply.
         if (before - address(this).balance != deposit) revert DepositNotTaken();
         state = State.Placed;
@@ -176,12 +191,13 @@ contract DecisionDepositPool {
     /// directly on governance (the KSM lands in this contract either way).
     function reclaim() external nonReentrant {
         if (state != State.Placed) revert WrongState();
-        // Low-level call: if governance refuses (still live, or killed), carry on
-        // and let the balance decide.
-        (bool ok, ) = XCM.call(
-            abi.encodeCall(IXcm.execute, (refundMessage(), IXcm(XCM).weighMessage(refundMessage())))
-        );
-        ok;
+        bytes memory message = refundMessage();
+        // Weighing and executing may both fail (still live, killed, a renumbered
+        // call). Neither may stop a refund that already arrived: the balance decides.
+        try IXcm(XCM).weighMessage(message) returns (IXcm.Weight memory w) {
+            (bool ok, ) = XCM.call(abi.encodeCall(IXcm.execute, (message, w)));
+            ok;
+        } catch {}
         if (address(this).balance < balanceAfterPlacing + deposit) revert NothingCameBack();
         state = State.Returning;
         emit Reclaimed(referendum, deposit, msg.sender);
@@ -233,10 +249,31 @@ contract DecisionDepositPool {
         require(ok);
     }
 
+    /// Anyone, once payouts are open: send `sweepTo` whatever the contract holds
+    /// beyond what contributors are still owed. Never touches a contributor's share.
+    function sweep() external nonReentrant {
+        if (state != State.Returning) revert WrongState();
+        uint256 bal = address(this).balance;
+        if (bal <= total) revert NothingToSweep();
+        uint256 amount = bal - total;
+        amount -= amount % weiPerPlanck;
+        if (amount == 0) revert NothingToSweep();
+        emit Swept(sweepTo, amount);
+        (bool ok, ) = sweepTo.call{value: amount}("");
+        require(ok);
+    }
+
     // ---------------------------------------------------------------- views
 
     function contributorCount() external view returns (uint256) {
         return contributors.length;
+    }
+
+    /// What `sweep` would send now (0 outside Returning).
+    function excess() external view returns (uint256) {
+        if (state != State.Returning || address(this).balance <= total) return 0;
+        uint256 amount = address(this).balance - total;
+        return amount - (amount % weiPerPlanck);
     }
 
     /// VersionedXcm::V5([Transact { origin_kind: SovereignAccount, fallback_max_weight: None, call }])
@@ -267,9 +304,5 @@ contract DecisionDepositPool {
             uint8(0x18), // compact length 6
             call
         );
-    }
-
-    function _execute(bytes memory message) internal {
-        IXcm(XCM).execute(message, IXcm(XCM).weighMessage(message));
     }
 }

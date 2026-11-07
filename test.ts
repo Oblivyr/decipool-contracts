@@ -38,7 +38,7 @@ const info = async (idx: number) => ((await api.query.referenda.referendumInfoFo
 const free = (who: Wallet | Hex) => freeOf(api, nativeOf(api, typeof who === "string" ? who : who.address));
 
 async function newPool(referendum: number, deadlineIn = 3600n) {
-  const pool = await deploy(api, dave, [referendum, DEPOSIT, MIN, (await now()) + deadlineIn, REFERENDA, PLACE, REFUND, WEI_PER_PLANCK]);
+  const pool = await deploy(api, dave, [referendum, DEPOSIT, MIN, (await now()) + deadlineIn, REFERENDA, PLACE, REFUND, WEI_PER_PLANCK, dave.address]);
   return pool;
 }
 const deadlineOf = async (pool: Hex) => BigInt(await read(api, pool, "fundingDeadline"));
@@ -197,8 +197,17 @@ say("\n# 4. Pool never fills before its deadline: anyone abandons it and everyon
   await advancePast(api, await deadlineOf(pool));
   check("paying in after the deadline is refused", (await tx(api, carol, pool, "contribute", [], 10n * KSM_WEI)).error === "TooLate");
   check("placing after the deadline is refused", (await tx(api, dave, pool, "place")).error === "TooLate");
+  // Version 2: money sent with a plain transfer (no contribute) can be swept, and only that.
+  const stray = await sendSubstrate(api, api.tx.balances.transferKeepAlive(nativeOf(api, pool), 7n * KSM), ferdie);
+  check("Ferdie sends 7 KSM to the pool with a plain transfer (runs no code)", !stray.error, stray.error ?? "");
+  check("sweep is refused while the pool is not Returning", (await tx(api, eve, pool, "sweep")).error === "WrongState");
   const before = await snapshot(parts);
   check("anyone can abandon after the deadline", (await tx(api, dave, pool, "abandon")).ok);
+  check("excess() is the stray 7 KSM, not the contributors' 150", (await read(api, pool, "excess")) === 7n * KSM_WEI, String(await read(api, pool, "excess")));
+  const d0 = await free(dave);
+  check("anyone (Eve) sweeps it", (await tx(api, eve, pool, "sweep")).ok);
+  check("it went to sweepTo (Dave, who created the pool): exactly 7 KSM", (await free(dave)) - d0 === 7n * KSM, ksm((await free(dave)) - d0));
+  check("a second sweep has nothing left", (await tx(api, eve, pool, "sweep")).error === "NothingToSweep");
   check("payout succeeds", (await tx(api, dave, pool, "payout", [0n, 100n])).ok);
   await repaidExactly(parts, before);
 }
@@ -211,6 +220,8 @@ say("\n# 5. Someone else places the deposit first: the pool refuses to place, gr
   const b0 = await free(bob);
   check("Bob pays 50 KSM", (await tx(api, bob, pool, "contribute", [], 50n * KSM_WEI)).ok);
   check("Bob pays another 25 KSM (adds to his share, no new slot)", (await tx(api, bob, pool, "contribute", [], 25n * KSM_WEI)).ok && (await read(api, pool, "contributorCount")) === 1n);
+  // Version 2: an address that withdraws and pays in again is listed once.
+  check("Bob withdraws all, then pays 75 KSM again: still one slot", (await tx(api, bob, pool, "withdraw")).ok && (await tx(api, bob, pool, "contribute", [], 75n * KSM_WEI)).ok && (await read(api, pool, "contributorCount")) === 1n);
   const direct = await sendSubstrate(api, api.tx.referenda.placeDecisionDeposit(idx), ferdie);
   check(`Ferdie places #${idx}'s deposit directly`, !direct.error, direct.error ?? "");
   const parts: [Wallet, bigint][] = [[alice, 300n * KSM], [carol, DEPOSIT - 375n * KSM]];
