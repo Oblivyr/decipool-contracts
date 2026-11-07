@@ -11,7 +11,7 @@ Solidity contracts for Decipool on Kusama and Polkadot Asset Hub (pallet-revive)
 | Network | Factory |
 |---|---|
 | Paseo Asset Hub | `0x7995c6e87915ce01640290db35fea399e4f0566c` (v2, verified) |
-| Kusama Asset Hub | not yet |
+| Kusama Asset Hub | `0xe0ca0c88d4ef3cd44e242fbaedac639603c1fd7f` (v2) |
 | Polkadot Asset Hub | not yet |
 
 Earlier Paseo factories (v1 `0xe1b26daa9a9000bb7be8584b994e1f47fba9998e`, which makes version 1 pools, and two prototypes) are kept in `deployments/paseo.json`; their pools keep working.
